@@ -23,19 +23,32 @@ section .rodata
             %endif
             %assign i i + 1
         %endrep
+    
+    Base2 equ 1
+    Base8 equ 3
+    Base10 equ 10
+    Base16 equ 4
+    Percent equ '%'
+    EndStr equ 0
+    ByteConst equ 8
+    SysWrite equ 1
+    STDOUT equ 1
 
 section .bss
     buffer      resb 10
     sizeBuffer  equ $ - buffer
-    pointer         resq 1
 
 section .text
     global PrintfChik
-; rdi rsi rdx rcx r8 r9
 
-; rdi - pointer to start string
 PrintfChik:
-    cld
+    pop r10          
+    push r9
+    push r8
+    push rcx
+    push rdx
+    push rsi
+    push r10         
 
     push rbp
     mov rbp, rsp
@@ -44,38 +57,34 @@ PrintfChik:
     push r12
     push r13
 
-    push r9
-    push r8
-    push rcx
-    push rdx
-    push rsi
-
-    xor r13, r13
-
+    cld
     mov rbx, rdi
-    lea rax, [buffer]
-    mov [pointer], rax
+    xor r12, r12
+    xor r13, r13
 
 Iterator:
     mov al, [rbx]
-    cmp al, 0
+    cmp al, EndStr
     je Finish
 
-    cmp al, '%'
+    cmp al, Percent
     je Parser
 
     call AddChar
-    jmp NextPipe
+
+NextPipe:
+    inc rbx
+    jmp Iterator
 
 Parser:
     inc rbx
     movzx rax, byte [rbx]
-
+    
     lea rdx, [jumpTable]
-    jmp [rdx + rax * 8]
+    jmp [rdx + rax * ByteConst]
 
 PrintPercent:
-    mov al, '%'
+    mov al, Percent
     call AddChar
     jmp NextPipe
 
@@ -83,147 +92,158 @@ PrintChar:
     call GetArg
     call AddChar
     jmp NextPipe
+
 ErrorSpec:
+    mov al, [rbx]
+    call AddChar
     jmp NextPipe
 
 PrintDec:
     call GetArg
     movsx rax, eax
-    mov r10, 10
+    mov r10, Base10
     test rax, rax
-    jns Converation
+    jns ConvertNe2
 
     push rax
     mov al, '-'
     call AddChar
     pop rax
     neg rax
-    jmp Converation
 
-PrintHex:
-    call GetArg
-    mov r10, 16
-    jmp Converation
-
-PrintOct:
-    call GetArg
-    mov r10, 8
-    jmp Converation
-
-PrintBin:
-    call GetArg
-    mov r10, 2
-    jmp Converation
-
-Converation:
+ConvertNe2:
     xor rcx, rcx
+
 Cyrcle:
     xor rdx, rdx
     div r10
-    cmp dl, 9
-    jbe IsDigit
-    add dl, 7
-IsDigit:
     add dl, '0'
     push rdx
     inc rcx
-    cmp rax, 0
-    jne Cyrcle
+    test rax, rax
+    jnz Cyrcle
+    jmp PopSym
+
+PrintHex:
+    call GetArg
+    mov r11, Base16
+    jmp Convert2base
+
+PrintOct:
+    call GetArg
+    mov r11, Base8
+    jmp Convert2base
+
+PrintBin:
+    call GetArg
+    mov r11, Base2
+    jmp Convert2base
+
+Convert2base:
+    xor rcx, rcx
+    mov r8, 1
+    push rcx
+    mov cl, r11b
+    shl r8, cl
+    pop rcx
+    dec r8
+
+Cyrcle2base:
+    mov rdx, rax
+    and rdx, r8
+    
+    push rcx
+    mov cl, r11b
+    shr rax, cl      
+    pop rcx
+
+    cmp dl, 9
+    jbe IsDigit2base
+    add dl, 7
+
+IsDigit2base:
+    add dl, '0'
+    push rdx
+    inc rcx
+    test rax, rax
+    jnz Cyrcle2base
 
 PopSym:
     pop rax
-    push rcx
     call AddChar
-    pop rcx
     loop PopSym
-
     jmp NextPipe
 
 PrintStr:
     call GetArg
     mov rsi, rax
-    cmp rsi, 0
-    je NextPipe
+    test rsi, rsi
+    jz NextPipe
+
 StringCycle:
     mov al, [rsi]
-    inc rsi
-    cmp al, 0
+    cmp al, EndStr
     je NextPipe
-
     call AddChar
+    inc rsi
     jmp StringCycle
 
-NextPipe:
-    inc rbx
-    jmp Iterator
+AddChar:
+    lea rdx, [buffer]
+    mov [rdx + r12], al
+    inc r12
+    cmp r12, sizeBuffer
+    jb EndAddChar
+    call FlushBuf
+
+EndAddChar:
+    ret
+
+FlushBuf:
+    test r12, r12
+    jz Empty
+
+    push rcx
+    push r11
+    push rdi
+    push rsi
+    push rdx
+    push rax
+
+    mov rax, SysWrite
+    mov rdi, STDOUT
+    lea rsi, [buffer]
+    mov rdx, r12
+    syscall
+
+    pop rax
+    pop rdx
+    pop rsi
+    pop rdi
+    pop r11
+    pop rcx
+
+    xor r12, r12
+
+Empty:
+    ret
+
+GetArg:
+    mov rax, [rbp + 2 * ByteConst + r13 * ByteConst]
+    inc r13
+    ret
 
 Finish:
     call FlushBuf
-    add rsp, 40
+
     pop r13
     pop r12
     pop rbx
     pop rbp
+
+    pop r10
+    add rsp, 40
+    push r10
     ret
 
-AddChar:
-    push rbx
-    mov rdi, [pointer]
-    mov [rdi], al
-    inc rdi
-    mov [pointer], rdi
-
-    lea rdx, [buffer]
-    mov rax, rdi
-    sub rax, rdx
-    cmp rax, sizeBuffer
-    jb Norm
-    call FlushBuf
-Norm:
-    pop rbx
-    ret
-FlushBuf:
-    push rax
-    push rdi
-    push rsi
-    push rdx
-    push rcx
-    push r11
-
-    mov rdx, [pointer]
-    lea rsi, [buffer]
-    sub rdx, rsi
-    jz Empty
-
-    mov rax, 1
-    mov rdi, 1
-    syscall
-    lea rax, [buffer]
-    mov qword [pointer], rax
-Empty:
-    pop r11
-    pop rcx
-    pop rdx
-    pop rsi
-    pop rdi
-    pop rax
-    ret
-    
-GetArg:
-    cmp r13, 5
-    jae ReadStack
-ReadReg:
-    mov rax, r13
-    shl rax, 3
-    sub rax, 64
-    add rax, rbp
-    mov rax, [rax]
-    inc r13
-    ret
-ReadStack:
-    mov rax, r13
-    sub rax, 5
-    shl rax, 3
-    mov rax, [rbp + 16 + rax]
-    inc r13
-    ret
+section .note.GNU-stack noalloc noexec nowrite progbits
