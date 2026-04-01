@@ -41,6 +41,9 @@ section .bss
 section .text
     global PrintfChik
 
+
+; Трамплин для аргументов + rbp + cld
+; Умирают: r10
 PrintfChik:
     pop r10          
     push r9
@@ -62,6 +65,8 @@ PrintfChik:
     xor r12, r12
     xor r13, r13
 
+; Сравнивает текущий символ с \0 и % и делает грязь. Иначе - закидывает в буффер символ
+; Умирают: al
 Iterator:
     mov al, [rbx]
     cmp al, EndStr
@@ -72,10 +77,15 @@ Iterator:
 
     call AddChar
 
+; Двигает указатель на след символ
+; Умирают: rbx
 NextPipe:
     inc rbx
     jmp Iterator
 
+
+; Парсит след символ за % и прыгает по нему
+; Умирают: rdx, rax, rdx
 Parser:
     inc rbx
     movzx rax, byte [rbx]
@@ -83,21 +93,30 @@ Parser:
     lea rdx, [jumpTable]
     jmp [rdx + rax * ByteConst]
 
+
+; Печатает процент
+; Умирают: al
 PrintPercent:
     mov al, Percent
     call AddChar
     jmp NextPipe
 
+; Печатает символ
+; Умирают: al
 PrintChar:
     call GetArg
     call AddChar
     jmp NextPipe
 
+; Печатает символ за проуцентом
+; Умирают: al
 ErrorSpec:
     mov al, [rbx]
     call AddChar
     jmp NextPipe
 
+; Получает аргумент из стека и загружает число в виде строки в буффер
+; Умирают: rax, r10
 PrintDec:
     call GetArg
     movsx rax, eax
@@ -111,6 +130,8 @@ PrintDec:
     pop rax
     neg rax
 
+; Происходит деление числа на Base который находится в r10 и закидывается в буффер строку
+; Умирают: rcx, rdx, rcx
 ConvertNe2:
     xor rcx, rcx
 
@@ -124,6 +145,9 @@ Cyrcle:
     jnz Cyrcle
     jmp PopSym
 
+; Далее говорим про все принты с основанием степени двойки:
+; Получает аргумент из стека и вызывают конвертер из числа в строку
+; Умирают: r11
 PrintHex:
     call GetArg
     mov r11, Base16
@@ -139,6 +163,9 @@ PrintBin:
     mov r11, Base2
     jmp Convert2base
 
+; Говорим о 4 след метках:
+; Делаем маску, а потом переводим число(rax) в строку shr на степень двойки
+; Умирают: rcx, r8, rdx, rax
 Convert2base:
     xor rcx, rcx
     mov r8, 1
@@ -154,7 +181,7 @@ Cyrcle2base:
     
     push rcx
     mov cl, r11b
-    shr rax, cl      
+    shr rax, cl 
     pop rcx
 
     cmp dl, 9
@@ -174,6 +201,9 @@ PopSym:
     loop PopSym
     jmp NextPipe
 
+
+; Печать строки, получает в rsi указатель на начало, сравнивает указатель с 0 и иначе печатает в буффер
+; Death: rsi, al
 PrintStr:
     call GetArg
     mov rsi, rax
@@ -188,6 +218,8 @@ StringCycle:
     inc rsi
     jmp StringCycle
 
+; Закидывает в буффер символ если размера нехватает буффер выводится
+; Death: rdx, r12
 AddChar:
     lea rdx, [buffer]
     mov [rdx + r12], al
@@ -199,6 +231,9 @@ AddChar:
 EndAddChar:
     ret
 
+
+; Сброс буффера в stdout через прерывание
+; Death: r12
 FlushBuf:
     test r12, r12
     jz Empty
@@ -228,11 +263,15 @@ FlushBuf:
 Empty:
     ret
 
+; Получает из стека аргументы
+; Death: rax, r13
 GetArg:
     mov rax, [rbp + 2 * ByteConst + r13 * ByteConst]
     inc r13
     ret
 
+; Выход из функции Printfchik, все аргументы "забываются(add rsp, 40)"
+; Death: 
 Finish:
     call FlushBuf
 
