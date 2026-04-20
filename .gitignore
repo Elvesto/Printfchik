@@ -1,2 +1,9 @@
 *.out
 *.o
+
+
+venv/
+raylib/
+.vscode/
+HashTable/
+mandelwrote/
